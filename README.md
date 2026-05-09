@@ -7,3 +7,6 @@ you can do whatever you want with it just dont jjust copy it to sell (thats not 
 1. to my pookie Claude sonnet 4.6
 2. to myself for having 7 hours to do it
 3. to apple for making the 2017 13" mac pro with the touchbar
+
+## It was made in XCODE and i just dumped all the files into there
+if you find any annoying bugs create the thingy or email me dorectly -- adbusleam@gmail.com
