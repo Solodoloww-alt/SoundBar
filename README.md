@@ -9,4 +9,4 @@ you can do whatever you want with it just dont jjust copy it to sell (thats not 
 3. to apple for making the 2017 13" mac pro with the touchbar
 
 ## It was made in XCODE and i just dumped all the files into there
-if you find any annoying bugs create the thingy or email me dorectly -- adbusleam@gmail.com
+if you find any annoying bugs create the bug report thingy or email me directly -- adbusleam@gmail.com
