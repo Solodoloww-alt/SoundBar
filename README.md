@@ -22,5 +22,6 @@ https://github.com/user-attachments/assets/913489c9-fe71-4acb-9883-f4052f917931
 
 <img width="836" height="666" alt="Screenshot 2026-05-09 at 18 52 12" src="https://github.com/user-attachments/assets/0965b7dc-caec-467a-88cc-60ea7eeff1b1" />
 
-## It was made in XCODE and i just dumped all the files into there
+## It was made in XCODE and i just dumped all the files into there - the second release is in the SoundBar folder 👍 
+
 if you find any annoying bugs create the bug report thingy or email me directly -- adbusleam@gmail.com
