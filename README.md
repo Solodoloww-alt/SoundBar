@@ -1,4 +1,4 @@
-###UPDATE
+##UPDATE
 there is now way more customization and also an option to toggle the control strip along with a major UI rework
 
 
