@@ -6,11 +6,27 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
     let audioMonitor = SystemAudioMonitor()
     var statusItem: NSStatusItem!
     var settingsWindow: NSWindow?
+    private var controlStripVisible = false
+
+    // MARK: - App Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         setupMenuBar()
         setupTouchBar()
+        setupControlStripShortcut()
+
+        // Read current state so toggle starts in sync with system
+        let current = Process()
+        current.launchPath = "/usr/bin/defaults"
+        current.arguments = ["read", "com.apple.touchbar.agent", "PresentationModeGlobal"]
+        let pipe = Pipe()
+        current.standardOutput = pipe
+        current.launch()
+        current.waitUntilExit()
+        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                            encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        controlStripVisible = (output == "appWithControlStrip")
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -31,7 +47,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
 
         if let button = statusItem.button {
             let config = NSImage.SymbolConfiguration(pointSize: 14, weight: .medium)
-            let image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "SoundBar")
+            let image = NSImage(systemSymbolName: "waveform",
+                                accessibilityDescription: "SoundBar")
             button.image = image?.withSymbolConfiguration(config)
         }
 
@@ -42,7 +59,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
                               keyEquivalent: "")
         open.target = self
         menu.addItem(open)
+
         menu.addItem(.separator())
+
+        let toggle = NSMenuItem(title: "Show Control Strip  (⌥⇧C)",
+                                action: #selector(toggleControlStripMenu),
+                                keyEquivalent: "")
+        toggle.target = self
+        menu.addItem(toggle)
+
+        menu.addItem(.separator())
+
         menu.addItem(NSMenuItem(title: "Quit SoundBar",
                                 action: #selector(NSApplication.terminate(_:)),
                                 keyEquivalent: "q"))
@@ -59,16 +86,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
         }
 
         let view = SettingsView(audioMonitor: audioMonitor)
+            .frame(minWidth: 640, idealWidth: 640, maxWidth: 640,
+                   minHeight: 520, idealHeight: 520, maxHeight: 520)
+
         let hosting = NSHostingView(rootView: view)
-        hosting.setFrameSize(NSSize(width: 440, height: 640))
 
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 440, height: 640),
+            contentRect: NSRect(x: 0, y: 0, width: 640, height: 520),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         win.contentView = hosting
+        win.setContentSize(NSSize(width: 640, height: 520))
+        win.contentMinSize = NSSize(width: 640, height: 520)
+        win.contentMaxSize = NSSize(width: 640, height: 520)
         win.center()
         win.title = "SoundBar"
         win.delegate = self
@@ -76,6 +108,57 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
         NSApp.activate(ignoringOtherApps: true)
         settingsWindow = win
         setupTouchBar()
+    }
+
+    // MARK: - Control Strip Toggle
+
+    private func setupControlStripShortcut() {
+        NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            if flags == [.option, .shift] && event.keyCode == 8 {
+                self?.toggleControlStrip()
+            }
+        }
+    }
+
+    @objc func toggleControlStripMenu() {
+        toggleControlStrip()
+    }
+
+    private func toggleControlStrip() {
+        controlStripVisible.toggle()
+
+        let task1 = Process()
+        task1.launchPath = "/usr/bin/defaults"
+        task1.arguments = [
+            "write",
+            "com.apple.touchbar.agent",
+            "PresentationModeGlobal",
+            controlStripVisible ? "appWithControlStrip" : "app"
+        ]
+        task1.launch()
+        task1.waitUntilExit()
+
+        // Kill both possible process names
+        for processName in ["ControlStrip", "TouchBarServer"] {
+            let kill = Process()
+            kill.launchPath = "/usr/bin/killall"
+            kill.arguments = [processName]
+            kill.launch()
+            kill.waitUntilExit()
+        }
+
+        // Update menu item title to reflect current state
+        if let menu = statusItem.menu,
+           let item = menu.items.first(where: { $0.action == #selector(toggleControlStripMenu) }) {
+            item.title = controlStripVisible
+                ? "Hide Control Strip  (⌥⇧C)"
+                : "Show Control Strip  (⌥⇧C)"
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            self.setupTouchBar()
+        }
     }
 
     // MARK: - Touch Bar
