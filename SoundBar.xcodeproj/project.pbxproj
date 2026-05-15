@@ -263,7 +263,6 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "SoundBar-V2";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SoundBar needs audio access to visualize your music on the Touch Bar.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -306,7 +305,6 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "SoundBar-V2";
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSMicrophoneUsageDescription = "SoundBar needs audio access to visualize your music on the Touch Bar.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
