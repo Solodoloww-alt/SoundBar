@@ -3,17 +3,19 @@ import ScreenCaptureKit
 import CoreMedia
 import Accelerate
 import Combine
+import AppKit
 
 class SystemAudioMonitor: NSObject, ObservableObject, SCStreamOutput {
     @Published var amplitudes: [Float]  = Array(repeating: 0, count: 100)
     @Published var peakLevels: [Float]  = Array(repeating: 0, count: 100)
     @Published var beatPulse: CGFloat   = 1.0
     @Published var isCapturing          = false
+    @Published var errorMessage: String? = nil
 
     private var stream: SCStream?
-    private lazy var fftHelper = FFTHelper(size: 1024)
+    private let fftHelper = FFTHelper(size: 512)
+    private let queue     = DispatchQueue(label: "com.soundbar.audio", qos: .userInteractive)
 
-    // All settings read live from UserDefaults
     private var smoothing:   Float { Float(UserDefaults.standard.double(forKey: "smoothing")  .nonZero ?? 0.6)  }
     private var sensitivity: Float { Float(UserDefaults.standard.double(forKey: "sensitivity").nonZero ?? 5.0)  }
     private var bassBoost:   Float { Float(UserDefaults.standard.double(forKey: "bassBoost")  .nonZero ?? 1.5)  }
@@ -24,19 +26,33 @@ class SystemAudioMonitor: NSObject, ObservableObject, SCStreamOutput {
         Task {
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
-                guard let display = content.displays.first else { return }
+                guard let display = content.displays.first else {
+                    await MainActor.run {
+                        self.errorMessage = "No display found. Make sure SoundBar has Screen Recording permission in System Settings > Privacy & Security."
+                    }
+                    return
+                }
+
                 let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
                 let config  = SCStreamConfiguration()
                 config.capturesAudio = true
                 config.sampleRate    = 48000
                 config.channelCount  = 1
-                stream = SCStream(filter: filter, configuration: config, delegate: nil)
-                try stream?.addStreamOutput(self, type: .audio,
-                                            sampleHandlerQueue: DispatchQueue(label: "audio", qos: .userInteractive))
-                try await stream?.startCapture()
-                DispatchQueue.main.async { self.isCapturing = true }
+
+                let s = SCStream(filter: filter, configuration: config, delegate: nil)
+                try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
+                try await s.startCapture()
+                self.stream = s
+
+                await MainActor.run {
+                    self.isCapturing = true
+                    self.errorMessage = nil
+                }
             } catch {
-                print("Capture failed: \(error)")
+                await MainActor.run {
+                    self.errorMessage = "Screen Recording permission needed. Open System Settings > Privacy & Security > Screen Recording, add SoundBar, check it, then relaunch."
+                    self.isCapturing = false
+                }
             }
         }
     }
@@ -48,6 +64,8 @@ class SystemAudioMonitor: NSObject, ObservableObject, SCStreamOutput {
             self.isCapturing = false
             self.amplitudes  = Array(repeating: 0, count: 100)
             self.peakLevels  = Array(repeating: 0, count: 100)
+            self.beatPulse   = 1.0
+            self.errorMessage = nil
         }
     }
 
@@ -76,20 +94,16 @@ class SystemAudioMonitor: NSObject, ObservableObject, SCStreamOutput {
 
         DispatchQueue.main.async {
             var energy: Float = 0
-
             for i in 0..<100 {
                 let freqIndex = min(i + offset + 2, frequencies.count - 1)
-                // Bass curve: stronger boost for lower bins, controlled by bassBoost setting
                 let t     = Float(i) / 100.0
-                let curve = bass - (bass - 1.0) * t   // goes from `bass` → 1.0 linearly
+                let curve = bass - (bass - 1.0) * t
                 let raw   = frequencies[freqIndex] * sens * curve
                 let target = min(raw, 1.0)
 
                 if target > self.amplitudes[i] {
-                    // Fast attack
                     self.amplitudes[i] = self.amplitudes[i] * smooth * 0.4 + target * (1 - smooth * 0.4)
                 } else {
-                    // Slow decay
                     self.amplitudes[i] = self.amplitudes[i] * smooth + target * (1 - smooth)
                 }
 
@@ -108,39 +122,54 @@ class SystemAudioMonitor: NSObject, ObservableObject, SCStreamOutput {
     }
 }
 
-// MARK: - FFT Helper
-
 class FFTHelper {
     let size: Int
+    let halfSize: Int
     let log2size: vDSP_Length
     let fftSetup: FFTSetup
+    private var real: [Float]
+    private var imag: [Float]
+    private var magnitudes: [Float]
+    private var input: [Float]
 
     init(size: Int) {
         self.size     = size
+        self.halfSize = size / 2
         self.log2size = vDSP_Length(log2f(Float(size)))
         self.fftSetup = vDSP_create_fftsetup(log2size, FFTRadix(kFFTRadix2))!
+        self.real      = [Float](repeating: 0, count: halfSize)
+        self.imag      = [Float](repeating: 0, count: halfSize)
+        self.magnitudes = [Float](repeating: 0, count: halfSize)
+        self.input     = [Float](repeating: 0, count: size)
     }
 
     func analyze(buffer: UnsafePointer<Float>, count: Int) -> [Float] {
-        let halfSize = size / 2
-        var real = [Float](repeating: 0, count: halfSize)
-        var imag = [Float](repeating: 0, count: halfSize)
-        var splitComplex = DSPSplitComplex(realp: &real, imagp: &imag)
-
-        var input = [Float](repeating: 0, count: size)
         let copyCount = min(count, size)
         for i in 0..<copyCount { input[i] = buffer[i] }
-
-        input.withUnsafeBytes { ptr in
-            guard let base = ptr.baseAddress else { return }
-            vDSP_ctoz(base.assumingMemoryBound(to: DSPComplex.self),
-                      2, &splitComplex, 1, vDSP_Length(halfSize))
+        if copyCount < size {
+            for i in copyCount..<size { input[i] = 0 }
         }
 
-        vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2size, FFTDirection(FFT_FORWARD))
+        real.withUnsafeMutableBufferPointer { realBuf in
+            imag.withUnsafeMutableBufferPointer { imagBuf in
+                var splitComplex = DSPSplitComplex(realp: realBuf.baseAddress!, imagp: imagBuf.baseAddress!)
+                input.withUnsafeBytes { ptr in
+                    guard let base = ptr.baseAddress else { return }
+                    vDSP_ctoz(base.assumingMemoryBound(to: DSPComplex.self),
+                              2, &splitComplex, 1, vDSP_Length(halfSize))
+                }
+                vDSP_fft_zrip(fftSetup, &splitComplex, 1, log2size, FFTDirection(FFT_FORWARD))
+            }
+        }
 
-        var magnitudes = [Float](repeating: 0, count: halfSize)
-        vDSP_zvmags(&splitComplex, 1, &magnitudes, 1, vDSP_Length(halfSize))
+        magnitudes.withUnsafeMutableBufferPointer { magBuf in
+            real.withUnsafeMutableBufferPointer { realBuf in
+                imag.withUnsafeMutableBufferPointer { imagBuf in
+                    var splitComplex = DSPSplitComplex(realp: realBuf.baseAddress!, imagp: imagBuf.baseAddress!)
+                    vDSP_zvmags(&splitComplex, 1, magBuf.baseAddress!, 1, vDSP_Length(halfSize))
+                }
+            }
+        }
 
         var scale: Float = 2.0 / Float(size)
         vDSP_vsmul(magnitudes, 1, &scale, &magnitudes, 1, vDSP_Length(halfSize))
@@ -150,8 +179,6 @@ class FFTHelper {
 
     deinit { vDSP_destroy_fftsetup(fftSetup) }
 }
-
-// MARK: - Helper
 
 private extension Double {
     var nonZero: Double? { self == 0 ? nil : self }

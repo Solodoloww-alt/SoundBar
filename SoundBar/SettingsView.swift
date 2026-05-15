@@ -1,39 +1,5 @@
 import SwiftUI
-
-// MARK: - App Storage Keys (all in one place)
-// Visual
-// barColorMode: "preset" | "solid" | "gradient"
-// presetTheme: String
-// solidColor: Color (stored as hex string)
-// gradientColor1, gradientColor2, gradientColor3: hex strings
-// gradientUseThreeColors: Bool
-// gradientAngle: Double (0-360)
-// glowMode: Bool
-// glowRadius: Double
-// glowColorMode: "match" | "white" | "custom"
-// glowCustomColor: hex
-// capsuleMode: Bool
-// mirrorMode: Bool
-// beatPulseEnabled: Bool
-// barOpacity: Double
-// peakHold: Bool
-// peakDecay: Double
-// peakColorMode: "white" | "match" | "custom"
-// peakCustomColor: hex
-// Bars
-// barCount: Double
-// barSpacing: Double
-// cornerRadius: Double
-// minBarHeight: Double
-// Audio
-// sensitivity: Double
-// smoothing: Double
-// bassBoost: Double
-// freqOffset: Double
-// Background
-// showBackground: Bool
-// backgroundColor: hex
-// backgroundOpacity: Double
+import ServiceManagement
 
 struct SettingsView: View {
     @ObservedObject var audioMonitor: SystemAudioMonitor
@@ -59,7 +25,6 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationSplitView {
-            // ── Sidebar ──────────────────────────────────────────────
             List(Section.allCases, id: \.self, selection: $selectedSection) { sec in
                 Label(sec.rawValue, systemImage: sec.icon)
                     .tag(sec)
@@ -67,7 +32,6 @@ struct SettingsView: View {
             .navigationSplitViewColumnWidth(200)
             .listStyle(.sidebar)
 
-            // App info at bottom of sidebar
             Spacer()
             VStack(spacing: 4) {
                 Image(systemName: "waveform.badge.mic")
@@ -81,7 +45,6 @@ struct SettingsView: View {
             .padding(.bottom, 16)
 
         } detail: {
-            // ── Detail ───────────────────────────────────────────────
             Group {
                 switch selectedSection {
                 case .capture:  CaptureSection(audioMonitor: audioMonitor)
@@ -106,7 +69,6 @@ struct CaptureSection: View {
     var body: some View {
         Form {
             Section {
-                // Live preview of the Touch Bar
                 ZStack {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color.black)
@@ -127,15 +89,20 @@ struct CaptureSection: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(audioMonitor.isCapturing ? "Capturing System Audio" : "Not Capturing")
                             .font(.system(size: 13, weight: .medium))
-                        Text(audioMonitor.isCapturing
-                             ? "Visualizer is active on Touch Bar"
-                             : "Press Start to begin visualization")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if let err = audioMonitor.errorMessage {
+                            Text(err)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                        } else {
+                            Text(audioMonitor.isCapturing
+                                 ? "Visualizer is active on Touch Bar"
+                                 : "Press Start to begin visualization")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     Spacer()
                     if audioMonitor.isCapturing {
-                        // Animated live indicator
                         HStack(spacing: 3) {
                             ForEach(0..<3) { i in
                                 RoundedRectangle(cornerRadius: 2)
@@ -201,7 +168,6 @@ struct ColoursSection: View {
 
     var body: some View {
         Form {
-            // ── Bar Colour Mode ───────────────────────────────────
             Section {
                 Picker("Mode", selection: $colorMode) {
                     Text("Preset").tag("preset")
@@ -221,12 +187,11 @@ struct ColoursSection: View {
                     if gradientUse3 {
                         ColorPicker("Colour 3", selection: grad3Color, supportsOpacity: false)
                     }
-                    // Gradient preview
                     gradientPreview
                         .frame(height: 24)
                         .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                default: // preset
+                default:
                     Picker("Theme", selection: $presetTheme) {
                         ForEach(presets, id: \.self) { Text($0) }
                     }
@@ -244,7 +209,6 @@ struct ColoursSection: View {
                 }
             } header: { Text("Bar Colour") }
 
-            // ── Glow ─────────────────────────────────────────────
             Section {
                 Toggle("Enable Glow", isOn: $glowMode)
                 if glowMode {
@@ -270,7 +234,6 @@ struct ColoursSection: View {
                 }
             } header: { Text("Glow") }
 
-            // ── Peak Hold ─────────────────────────────────────────
             Section {
                 Toggle("Show Peak Lines", isOn: $peakHold)
                 if peakHold {
@@ -287,7 +250,6 @@ struct ColoursSection: View {
                 }
             } header: { Text("Peak Hold") }
 
-            // ── Background ────────────────────────────────────────
             Section {
                 Toggle("Custom Background", isOn: $showBackground)
                 if showBackground {
@@ -365,6 +327,15 @@ struct BarsSection: View {
                             .foregroundStyle(.secondary).monospacedDigit()
                     }
                     Slider(value: $minBarHeight, in: 0...10, step: 0.5)
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Width Scale")
+                        Spacer()
+                        Text(String(format: "%.2f", barWidthScale))
+                            .foregroundStyle(.secondary).monospacedDigit()
+                    }
+                    Slider(value: $barWidthScale, in: 0.5...2.0, step: 0.05)
                 }
             } header: { Text("Size") }
 
@@ -491,9 +462,32 @@ struct AdvancedSection: View {
     @AppStorage("showBackground")     private var showBackground = false
     @AppStorage("bgColorHex")         private var bgColorHex     = "#000000"
     @AppStorage("bgOpacity")          private var bgOpacity      = 0.6
+    @AppStorage("launchAtLogin")      private var launchAtLogin  = false
+    @AppStorage("alwaysVisible")      private var alwaysVisible  = false
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Launch at Login", isOn: Binding(
+                    get: { launchAtLogin },
+                    set: { newValue in
+                        launchAtLogin = newValue
+                        if #available(macOS 13.0, *) {
+                            do {
+                                if newValue {
+                                    try SMAppService.mainApp.register()
+                                } else {
+                                    try SMAppService.mainApp.unregister()
+                                }
+                            } catch {
+                                print("Failed to update launch at login: \(error)")
+                            }
+                        }
+                    }
+                ))
+                Toggle("Always Visible on Touch Bar", isOn: $alwaysVisible)
+            } header: { Text("Startup") }
+
             Section {
                 Button("Reset All Settings") {
                     resetAll()
@@ -527,10 +521,14 @@ struct AdvancedSection: View {
         sensitivity = 5.0;         smoothing = 0.6
         barCount = 30.0;           showBackground = false
         bgColorHex = "#000000";    bgOpacity = 0.6
+        launchAtLogin = false
+        alwaysVisible = false
+        if #available(macOS 13.0, *) { try? SMAppService.mainApp.unregister() }
+        (NSApp.delegate as? AppDelegate)?.alwaysVisibleSettingChanged()
     }
 }
 
-// MARK: - Colour Helpers (shared across the file)
+// MARK: - Colour Helpers
 
 func colorFromHex(_ hex: String) -> Color {
     var h = hex.trimmingCharacters(in: .alphanumerics.inverted)

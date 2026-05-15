@@ -8,25 +8,28 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
     var settingsWindow: NSWindow?
     private var controlStripVisible = false
 
-    // MARK: - App Lifecycle
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         setupMenuBar()
         setupTouchBar()
         setupControlStripShortcut()
+        setupAlwaysVisibleTouchBar()
+        observeAlwaysVisibleSetting()
 
-        // Read current state so toggle starts in sync with system
         let current = Process()
-        current.launchPath = "/usr/bin/defaults"
+        current.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
         current.arguments = ["read", "com.apple.touchbar.agent", "PresentationModeGlobal"]
         let pipe = Pipe()
         current.standardOutput = pipe
-        current.launch()
-        current.waitUntilExit()
-        let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
-                            encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        controlStripVisible = (output == "appWithControlStrip")
+        do {
+            try current.run()
+            current.waitUntilExit()
+            let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(),
+                                encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            controlStripVisible = (output == "appWithControlStrip")
+        } catch {
+            print("Failed to read Touch Bar state: \(error)")
+        }
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
@@ -129,26 +132,22 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
         controlStripVisible.toggle()
 
         let task1 = Process()
-        task1.launchPath = "/usr/bin/defaults"
+        task1.executableURL = URL(fileURLWithPath: "/usr/bin/defaults")
         task1.arguments = [
             "write",
             "com.apple.touchbar.agent",
             "PresentationModeGlobal",
             controlStripVisible ? "appWithControlStrip" : "app"
         ]
-        task1.launch()
-        task1.waitUntilExit()
+        do { try task1.run(); task1.waitUntilExit() } catch { print("Failed to write Touch Bar state: \(error)") }
 
-        // Kill both possible process names
         for processName in ["ControlStrip", "TouchBarServer"] {
             let kill = Process()
-            kill.launchPath = "/usr/bin/killall"
+            kill.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
             kill.arguments = [processName]
-            kill.launch()
-            kill.waitUntilExit()
+            do { try kill.run(); kill.waitUntilExit() } catch { }
         }
 
-        // Update menu item title to reflect current state
         if let menu = statusItem.menu,
            let item = menu.items.first(where: { $0.action == #selector(toggleControlStripMenu) }) {
             item.title = controlStripVisible
@@ -159,6 +158,64 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             self.setupTouchBar()
         }
+    }
+
+    // MARK: - Always-Visible Touch Bar (private API)
+
+    private var systemModalTouchBar: NSTouchBar?
+
+    private func setupAlwaysVisibleTouchBar() {
+        guard UserDefaults.standard.bool(forKey: "alwaysVisible") else { return }
+        presentSystemModalTouchBar()
+    }
+
+    private func observeAlwaysVisibleSetting() {
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(alwaysVisibleSettingChanged),
+            name: UserDefaults.didChangeNotification,
+            object: nil
+        )
+    }
+
+    @objc func alwaysVisibleSettingChanged() {
+        DispatchQueue.main.async { [self] in
+            if UserDefaults.standard.bool(forKey: "alwaysVisible") {
+                presentSystemModalTouchBar()
+            } else {
+                dismissSystemModalTouchBar()
+            }
+        }
+    }
+
+    private func presentSystemModalTouchBar() {
+        let sel = NSSelectorFromString("presentSystemModalTouchBar:placement:systemTrayItemIdentifier:")
+        guard let imp = (NSTouchBar.self as AnyObject).method(for: sel) else {
+            print("presentSystemModalTouchBar: not available")
+            return
+        }
+        typealias F = @convention(c) (AnyObject, Selector, NSTouchBar, Int, Any?) -> Void
+        let f = unsafeBitCast(imp, to: F.self)
+        let tb = makeTouchBar()
+        systemModalTouchBar = tb
+        f(NSTouchBar.self, sel, tb, 1, NSTouchBarItem.Identifier.visualizerItem as CFString)
+    }
+
+    private func dismissSystemModalTouchBar() {
+        guard let tb = systemModalTouchBar else { return }
+        let sel = NSSelectorFromString("dismissSystemModalTouchBar:")
+        guard let imp = (NSTouchBar.self as AnyObject).method(for: sel) else {
+            print("dismissSystemModalTouchBar: not available")
+            return
+        }
+        typealias F = @convention(c) (AnyObject, Selector, NSTouchBar) -> Void
+        let f = unsafeBitCast(imp, to: F.self)
+        f(NSTouchBar.self, sel, tb)
+        systemModalTouchBar = nil
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        dismissSystemModalTouchBar()
     }
 
     // MARK: - Touch Bar
@@ -190,15 +247,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSTouchBarDelegate {
     }
 }
 
-// MARK: - Window Delegate
-
 extension AppDelegate: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         settingsWindow = nil
     }
 }
-
-// MARK: - Identifiers
 
 extension NSTouchBarItem.Identifier {
     static let visualizerItem = NSTouchBarItem.Identifier("com.soundbar.visualizer")
