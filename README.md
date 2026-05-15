@@ -1,27 +1,95 @@
-##UPDATE
-there is now way more customization and also an option to toggle the control strip along with a major UI rework
+# SoundBar
 
+A macOS audio visualizer for the MacBook Pro Touch Bar. Captures system audio and displays real-time frequency bars on the Touch Bar.
 
-## SoundBar
-SoundBar - I made it because I do NOT want to mess around with buying, finding open source bs, I just wanted something customisable that works, and here it is ( ofc I aint a software engineer or some super awesome dude so I used Claude &lt;3 )
+## Features
 
-you can do whatever you want with it just dont just copy it to sell (thats not cool :O)
+- Real-time FFT audio visualization on the Touch Bar
+- Always-visible mode (system-wide Touch Bar overlay)
+- Multiple color presets (Cyan/Purple, Fire, Neon Green, Ocean, Sunset, etc.)
+- Custom gradients and solid colors
+- Glow effects, mirror mode, capsule shapes
+- Peak hold with configurable decay
+- Beat pulse animation
+- Adjustable bar count, spacing, sensitivity, smoothing, bass boost
+- Launch at Login support
+- Menu bar quick access
 
-## special thanks
-1. to my pookie Claude sonnet 4.6
-2. to myself for having 7 hours to do it
-3. to apple for making the 2017 13" mac pro with the touchbar
+## Screenshots
 
+```
+┌─────────────────────────────────────────────────────┐
+│  ▐███▌ ▐██▌  ▐██▌ ▐██▌  ▐██▌ ▐██▌  ▐██▌ ▐██▌      │
+│  ▐███▌ ▐██▌  ▐██▌ ▐███▌ ▐██▌ ▐███▌ ▐██▌ ▐██▌      │
+│  ▐███▌▐████▌ ▐███▌▐████▌▐████▌████▌▐████▌████▌     │
+│  ████████████████████████████████████████████████    │
+│  ⋮━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━⋮    │
+│              Touch Bar Visualizer                   │
+└─────────────────────────────────────────────────────┘
 
+Settings window:
+┌──────────────────────────────────────────────┐
+│  Capture  │  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
+│  Colours  │  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  │
+│  Bars     │  ● Live Touch Bar Preview        │
+│  Audio    │                                    │
+│  Advanced │  [Start Visualizing]              │
+└──────────────────────────────────────────────┘
+```
 
-https://github.com/user-attachments/assets/913489c9-fe71-4acb-9883-f4052f917931
+## Requirements
 
+- macOS 15.0+
+- MacBook Pro with Touch Bar
+- Screen Recording permission (System Settings > Privacy & Security > Screen Recording)
 
+## Installation
 
-<img width="836" height="666" alt="Screenshot 2026-05-09 at 18 52 03" src="https://github.com/user-attachments/assets/8daf2263-5cc2-4ccb-9c5e-32d2e0b347c6" />
+Download the latest release from [Releases](https://github.com/Solodoloww-alt/SoundBar/releases).
 
-<img width="836" height="666" alt="Screenshot 2026-05-09 at 18 52 12" src="https://github.com/user-attachments/assets/0965b7dc-caec-467a-88cc-60ea7eeff1b1" />
+Or build from source:
 
-## It was made in XCODE and i just dumped all the files into there - the second release is in the SoundBar folder 👍 
+```bash
+git clone https://github.com/Solodoloww-alt/SoundBar.git
+cd SoundBar
+xcodebuild -project SoundBar.xcodeproj -scheme SoundBar -configuration Release build
+cp -R build/Release/SoundBar.app /Applications/
+```
 
-if you find any annoying bugs create the bug report thingy or email me directly -- adbusleam@gmail.com
+## Usage
+
+1. Launch SoundBar
+2. Click **Start Visualizing** in the settings window
+3. Grant Screen Recording permission when prompted
+4. The Touch Bar now shows the audio visualizer
+5. Open Settings from the menu bar icon to customize
+
+### Always Visible
+
+Enable **Always Visible on Touch Bar** in Settings → Advanced to keep the visualizer on the Touch Bar even when switching to other apps.
+
+### Control Strip Toggle
+
+Press **⌥⇧C** or use the menu bar item to toggle between Control Strip modes.
+
+## Settings
+
+| Section  | Options |
+|----------|---------|
+| Capture  | Start/Stop, preview |
+| Colours  | Presets, solid, gradient, glow, peak, background |
+| Bars     | Count, spacing, shape, mirror mode, beat pulse |
+| Audio    | Sensitivity, smoothing, bass boost, frequency offset, peak decay |
+| Advanced | Launch at Login, Always Visible |
+
+## Technical Details
+
+- Audio capture via `ScreenCaptureKit` (`SCStream` with `capturesAudio`)
+- FFT processing via `Accelerate` (vDSP), 512-bin window with pre-allocated buffers
+- Always-visible Touch Bar via private API `presentSystemModalTouchBar:placement:systemTrayItemIdentifier:`
+- SwiftUI rendering with `Canvas` for efficient bar drawing
+- No sandbox, no third-party dependencies
+
+## License
+
+MIT
